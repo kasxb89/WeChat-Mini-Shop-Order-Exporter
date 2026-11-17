@@ -1,0 +1,9 @@
+PySide6
+Pillow
+windows-capture
+numpy
+rapidocr-onnxruntime
+pyinstaller
+frida==17.26.3
+psutil==7.2.2
+websockets==15.0.1

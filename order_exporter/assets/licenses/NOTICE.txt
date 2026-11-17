@@ -1,0 +1,19 @@
+Local order connection dependencies
+
+Frida Python bindings 17.26.3
+https://github.com/frida/frida-python
+The original, unmodified binary binding is included in the application bundle.
+License: see Frida-COPYING.txt. Corresponding source is available from the project above.
+
+psutil 7.2.2
+https://github.com/giampaolo/psutil
+License: see psutil-LICENSE.txt.
+
+websockets 15.0.1
+https://github.com/python-websockets/websockets
+License: see websockets-LICENSE.txt.
+
+WMPF protocol research references (not bundled as runtime code)
+https://github.com/evi0s/WMPFDebugger
+The diagnostic autodetector and its GPL license remain in verification only.
+The shipped runtime uses the independently implemented, version-bound connection and protobuf envelope.
