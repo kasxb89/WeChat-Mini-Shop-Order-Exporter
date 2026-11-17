@@ -34,8 +34,9 @@ class Store:
         # 兼容已安装的 0.1.0 进度文件，不丢弃旧采集记录。
         additions = {
             "jobs": {"filters": "TEXT NOT NULL DEFAULT '{\"scope\":\"shipping\"}'", "source": "TEXT NOT NULL DEFAULT '{}'"},
-            "orders": {**{name: "TEXT NOT NULL DEFAULT ''" for name in ("ordered_at", "shop", "status", "note", "tracking_state", "recipient")},
-                       "recipient_checked": "INTEGER NOT NULL DEFAULT 0"},
+            "orders": {**{name: "TEXT NOT NULL DEFAULT ''" for name in ("ordered_at", "shop", "status", "note", "tracking_state", "recipient", "address", "contact_phone")},
+                       "recipient_checked": "INTEGER NOT NULL DEFAULT 0",
+                       "shipping_info_checked": "INTEGER NOT NULL DEFAULT 0"},
         }
         with self.db:
             for table, columns in additions.items():
@@ -82,10 +83,11 @@ class Store:
             # 快递单号可能来自多个包裹，仍按完整订单号合并。
             tracking = list(dict.fromkeys(json.loads(existing[1]) + tracking))
         with self.db:
-            self.db.execute("INSERT OR REPLACE INTO orders (job_id,order_id,products,tracking,captured,ordered_at,shop,status,note,tracking_state,recipient,recipient_checked) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (
+            self.db.execute("INSERT OR REPLACE INTO orders (job_id,order_id,products,tracking,captured,ordered_at,shop,status,note,tracking_state,recipient,recipient_checked,address,contact_phone,shipping_info_checked) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
                 job, record.order_id, json.dumps(products, ensure_ascii=False),
                 json.dumps(tracking, ensure_ascii=False), now(), record.ordered_at, record.shop,
                 record.status, record.note, record.tracking_state, record.recipient, int(record.recipient_checked),
+                record.address, record.contact_phone, int(record.shipping_info_checked),
             ))
         return existing is None
 
@@ -94,7 +96,7 @@ class Store:
 
     def records(self, job: str) -> list[OrderRecord]:
         return [OrderRecord(row[0], tuple(json.loads(row[1])), tuple(json.loads(row[2])), *row[3:])
-                for row in self.db.execute("SELECT order_id,products,tracking,ordered_at,shop,status,note,tracking_state,recipient,recipient_checked FROM orders WHERE job_id=? ORDER BY rowid", (job,))]
+                for row in self.db.execute("SELECT order_id,products,tracking,ordered_at,shop,status,note,tracking_state,recipient,recipient_checked,address,contact_phone,shipping_info_checked FROM orders WHERE job_id=? ORDER BY rowid", (job,))]
 
     def clear(self, job: str | None = None) -> Path:
         backup = self.path.parent / "backups" / f"clear_{datetime.now():%Y%m%d_%H%M%S_%f}.sqlite3"
@@ -111,11 +113,14 @@ class Store:
         return backup
 
     def record(self, job: str, order_id: str) -> OrderRecord:
-        row = self.db.execute("SELECT order_id,products,tracking,ordered_at,shop,status,note,tracking_state,recipient,recipient_checked FROM orders WHERE job_id=? AND order_id=?", (job, order_id)).fetchone()
+        row = self.db.execute("SELECT order_id,products,tracking,ordered_at,shop,status,note,tracking_state,recipient,recipient_checked,address,contact_phone,shipping_info_checked FROM orders WHERE job_id=? AND order_id=?", (job, order_id)).fetchone()
         return OrderRecord(row[0], tuple(json.loads(row[1])), tuple(json.loads(row[2])), *row[3:])
 
     def uncollected_recipients(self, job: str) -> int:
         return self.db.execute("SELECT count(*) FROM orders WHERE job_id=? AND recipient_checked=0", (job,)).fetchone()[0]
+
+    def uncollected_shipping_info(self, job: str) -> int:
+        return self.db.execute("SELECT count(*) FROM orders WHERE job_id=? AND (recipient_checked=0 OR shipping_info_checked=0)", (job,)).fetchone()[0]
 
     def filters(self, job: str) -> Filters:
         return Filters(**json.loads(self.db.execute("SELECT filters FROM jobs WHERE id=?", (job,)).fetchone()[0]))

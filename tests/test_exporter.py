@@ -803,7 +803,7 @@ class WorkbookTests(unittest.TestCase):
             self.assertEqual(sheet["I1"].value,"收件人")
             self.assertEqual(sheet["I2"].value,"张*")
             self.assertEqual(sheet["I2"].data_type,"s")
-            self.assertEqual(sheet.auto_filter.ref,"A1:I2")
+            self.assertEqual(sheet.auto_filter.ref,"A1:K2")
             book.close()
 
     def test_cancelled_order_exports_with_empty_tracking_and_status(self):

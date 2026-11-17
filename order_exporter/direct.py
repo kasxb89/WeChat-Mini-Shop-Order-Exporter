@@ -31,7 +31,8 @@ def record_from_payload(value, listing):
         value.get('shop') or listing.get('shop', ''), value.get('status') or listing.get('status', ''),
         '接口尚未返回已发货包裹的完整单号，请继续补采。' if pending else '',
         '已取得单号' if numbers else '待补采' if pending else '无物流（接口未返回）',
-        value.get('recipient', ''), True)
+        value.get('recipient', ''), True,
+        value.get('address', ''), value.get('contact_phone', ''), True)
 
 
 class Collector:
@@ -145,7 +146,7 @@ class Collector:
             for offset in range(0, len(eligible), 4):
                 self.api.check()
                 batch = eligible[offset:offset + 4]
-                self.report('批量读取详情', f'直接读取商品、收件人和快递单号，已保存 {self.count} 笔。')
+                self.report('批量读取详情', f'直接读取商品、收货信息和快递单号，已保存 {self.count} 笔。')
                 values = self.api.details(batch)
                 if len(values) != len(batch):
                     raise PageError('订单详情返回不完整，已有记录已保存，请继续上次任务。')

@@ -47,7 +47,7 @@ class Worker(QtCore.QThread):
         try:
             self.progress.emit(Progress("连接订单数据", "正在为所选微信建立本地订单数据连接…", store.count(self.job) if self.job else 0))
             desktop = Desktop(self.stop, background=self.background)
-            completed = [r for r in store.records(self.job) if r.tracking_state != "待补采" and r.recipient_checked] if self.job else []
+            completed = [r for r in store.records(self.job) if r.tracking_state != "待补采" and r.recipient_checked and r.shipping_info_checked] if self.job else []
             collector = Collector(desktop, self.progress.emit, store.filters(self.job) if self.job else None,
                                   {r.order_id for r in completed}, {r.order_id:r.ordered_at for r in completed}, target=self.target)
             if self.job is None:
@@ -247,17 +247,17 @@ class MainWindow(QtWidgets.QMainWindow):
         actions.addWidget(self.check)
         layout.addLayout(actions)
 
-        self.table = QtWidgets.QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["订单编号", "产品名称", "快递单号", "下单时间", "收件人", "状态"])
+        self.table = QtWidgets.QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(["订单编号", "产品名称", "快递单号", "下单时间", "收件人", "联系电话", "收货地址", "状态"])
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.table.setWordWrap(True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.Interactive)
-        self.table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(2, QtWidgets.QHeaderView.Interactive)
         self.table.horizontalHeader().setMinimumSectionSize(90)
-        for index, width in ((0, 180), (2, 165), (3, 160), (4, 90), (5, 110)):
+        for index, width in ((0, 180), (1, 260), (2, 165), (3, 160), (4, 90), (5, 140), (6, 280), (7, 110)):
             self.table.setColumnWidth(index, width)
         self.table.setShowGrid(False)
         self.table.setAccessibleName("已经完整采集的订单")
@@ -371,8 +371,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.folder.setText(str(self.output.parent))
             self.refresh_records(store)
             filters = store.filters(self.job)
-            missing_recipients = store.uncollected_recipients(self.job)
-            can_resume = (latest["status"] != "complete" or missing_recipients > 0) and filters.scope == "all"
+            missing_shipping = store.uncollected_shipping_info(self.job)
+            can_resume = (latest["status"] != "complete" or missing_shipping > 0) and filters.scope == "all"
             self.resume.setEnabled(can_resume and self.license_status.can_collect)
             self.resume.setProperty("canResume", can_resume)
             if filters.scope == "all":
@@ -387,9 +387,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 if source and target.hwnd == source["hwnd"] and target.path.lower() == source["path"].lower() and target.pid == source.get("pid",0):
                     self.target.setCurrentIndex(index)
                     break
-            if missing_recipients and filters.scope == "all":
-                self.stage.setText("可补采收件人")
-                self.message.setText(f"上次 {missing_recipients} 笔订单尚未采集收件人。点击「继续上次」补采，并更新原 Excel。")
+            if missing_shipping and filters.scope == "all":
+                self.stage.setText("可补采收货信息")
+                self.message.setText(f"上次 {missing_shipping} 笔订单尚未完整采集收货信息。点击「继续上次」补采收件人、电话和地址，并更新原 Excel。")
         else:
             self.resume.setEnabled(False)
             self.export.setEnabled(False)
@@ -434,7 +434,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.table.insertRow(row)
             self.rows_by_id[record.order_id] = row
         values = (record.order_id, "\n".join(record.products), "\n".join(record.tracking_numbers),
-                  record.ordered_at, record.recipient, record.status + (" · 单号待补采" if record.tracking_state == "待补采" else ""))
+                  record.ordered_at, record.recipient, record.contact_phone, record.address,
+                  record.status + (" · 单号待补采" if record.tracking_state == "待补采" else ""))
         for col, text in enumerate(values):
             item = QtWidgets.QTableWidgetItem(text)
             item.setToolTip("\n".join(filter(None, (text, "店铺："+record.shop, record.tracking_state, record.note))))

@@ -56,6 +56,9 @@ class OrderRecord:
     tracking_state: str = "已取得单号"
     recipient: str = ""
     recipient_checked: bool = False
+    address: str = ""
+    contact_phone: str = ""
+    shipping_info_checked: bool = False
 
     def __post_init__(self):
         if not self.order_id.strip() or not self.products:

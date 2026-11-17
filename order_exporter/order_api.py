@@ -28,8 +28,8 @@ CONTEXT_EXPRESSION = """(function(){try {
     return {appid:wx.getAccountInfoSync().miniProgram.appId,ready:typeof wx.operateWXData==='function'};
 }catch(_){}return null;})()"""
 
-# Only requested export fields cross the local transport. Addresses, phone numbers,
-# payment data, cookies and request context are not exported or logged.
+# Only requested order and shipping fields cross the local transport.
+# Payment data, cookies and request context are not exported or logged.
 PROJECT_JS = """
 function check(result) {
   const code=result.baseResp && result.baseResp.errcode;
@@ -48,6 +48,18 @@ function summary(order) {
   return {order_id:identifier(order.orderId),products:products(order),
     ordered_at:order.orderCreateTime,shop:(order.shopInfo||{}).shopName||'',
     status:order.orderStateStr||''};
+}
+function shippingAddress(address) {
+  const parts=[address.province_name||address.province,address.city_name||address.city,
+    address.county_name||address.county,address.detail_info||address.detailInfo];
+  let result='';
+  for(const part of parts) {
+    const text=String(part||'').trim();
+    if(!text)continue;
+    if(!result || text.startsWith(result))result=text;
+    else if(!result.endsWith(text))result+=text;
+  }
+  return result;
 }
 function detailRecord(response) {
   check(response);
@@ -73,7 +85,10 @@ function detailRecord(response) {
   result.order_id=identifier((finder.order_key||{}).order_id||result.order_id);
   result.ordered_at=finder.create_time||result.ordered_at;
   result.status=order.orderStateStrSc||result.status;
-  result.recipient=(delivery.address_info||{}).user_name||(order.customerAddressInfo||{}).contactName||'';
+  const address=delivery.address_info||{}, fallback=order.customerAddressInfo||{};
+  result.recipient=address.user_name||fallback.contactName||'';
+  result.address=shippingAddress(address)||shippingAddress(fallback);
+  result.contact_phone=String(address.tel_number||fallback.telNumber||'');
   result.tracking_numbers=Array.from(new Set(numbers));
   result.shipping_known=!!(((order.deliveryInfo||{}).expressInfo||{}).stateNew ||
     (delivery.ewaybill_info_list||[]).length || (delivery.delivery_product_info||[]).length);

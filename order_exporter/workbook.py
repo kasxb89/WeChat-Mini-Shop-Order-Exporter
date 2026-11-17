@@ -48,9 +48,9 @@ def export_xlsx(path: Path, records: list[OrderRecord], metadata: dict[str, str]
         raise ValueError("订单数量超过单张工作表容量，请拆分任务导出。")
     path = path.with_suffix(".xlsx")
     path.parent.mkdir(parents=True, exist_ok=True)
-    rows = [("订单编号", "产品名称", "快递单号", "下单时间", "店铺", "订单状态", "物流采集状态", "备注", "收件人")]
+    rows = [("订单编号", "产品名称", "快递单号", "下单时间", "店铺", "订单状态", "物流采集状态", "备注", "收件人", "联系电话", "收货地址")]
     rows += [(r.order_id, "\n".join(r.products), "\n".join(r.tracking_numbers), r.ordered_at,
-              r.shop, r.status, r.tracking_state, r.note, r.recipient) for r in records]
+              r.shop, r.status, r.tracking_state, r.note, r.recipient, r.contact_phone, r.address) for r in records]
     info = [("项目", "内容"), ("导出订单数", str(len(records))), *metadata.items()]
     content = b'''<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'''
@@ -74,7 +74,7 @@ def export_xlsx(path: Path, records: list[OrderRecord], metadata: dict[str, str]
             for name, value in {
                 "[Content_Types].xml": content, "_rels/.rels": xml(rootrels),
                 "xl/workbook.xml": xml(workbook), "xl/_rels/workbook.xml.rels": xml(rels),
-                "xl/styles.xml": styles, "xl/worksheets/sheet1.xml": sheet(rows, (32, 65, 34, 24, 32, 16, 20, 60, 20), filter_rows=True),
+                "xl/styles.xml": styles, "xl/worksheets/sheet1.xml": sheet(rows, (32, 65, 34, 24, 32, 16, 20, 60, 20, 22, 65), filter_rows=True),
                 "xl/worksheets/sheet2.xml": sheet(info, (22, 85), filter_rows=False),
             }.items():
                 z.writestr(name, value)
