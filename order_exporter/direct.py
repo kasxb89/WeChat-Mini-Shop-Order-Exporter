@@ -11,6 +11,10 @@ from .order_api import OrderAPI, browser_pid, source_window, wechat_pid
 from .vision import wechat_order_center
 
 
+class OrderContextPending(PageError):
+    pass
+
+
 def order_time(value):
     if not value:
         return ''
@@ -51,7 +55,22 @@ class Collector:
         self.progress(Progress(stage, message, self.count))
 
     def prepare(self):
+        for fresh in (False, True):
+            try:
+                self._prepare(fresh=fresh)
+                return
+            except OrderContextPending:
+                if fresh:
+                    raise
+                self.report('自动重建连接', '小店连接尚未就绪，正在重新打开所选账号的小店并建立连接。')
+                self.api.close()
+                self.api = OrderAPI(self.desktop.stop, self.desktop.check_stop)
+
+    def _prepare(self, *, fresh=False):
         windows = self.desktop.windows()
+        if fresh and hasattr(self, 'owner_pid'):
+            self.target = next((w for w in windows if w.pid == self.owner_pid
+                and w.path.lower().endswith(('\\weixin.exe', '\\wechat.exe'))), self.target)
         selected = self.target
         if selected:
             selected = next((w for w in windows if w == selected), None)
@@ -69,6 +88,7 @@ class Collector:
         try:
             self.report('自动建立数据连接', '正在自动打开小店订单中心，准备好后批量读取订单，请暂时不要切换微信。')
             owner = wechat_pid(selected)
+            self.owner_pid = owner
             if selected.title in {'小店', '微信小店'}:
                 selected = source_window(windows, selected)
             miniapps = [w for w in windows if w.title in {'小店', '微信小店'} and wechat_pid(w) == owner]
@@ -81,7 +101,7 @@ class Collector:
                     if time.monotonic() > until:
                         raise PageError('微信小店尚未关闭，请关闭后继续建立数据连接。')
                     self.desktop.wait(.05)
-            if selected.path.lower().endswith(('\\weixin.exe', '\\wechat.exe')):
+            if not fresh and selected.path.lower().endswith(('\\weixin.exe', '\\wechat.exe')):
                 searches = [w for w in windows if w.title == '微信' and w.path.lower().endswith('\\wechatappex.exe')
                             and wechat_pid(w) == owner]
                 for search in searches:
@@ -92,10 +112,14 @@ class Collector:
             def connect(search):
                 self.bound_window = search
                 self.api.start(browser_pid(search))
-            entry = EntryPreparer(self.desktop, self.progress, target=selected, before_open=connect)
+            entry = EntryPreparer(self.desktop, self.progress, target=selected, before_open=connect,
+                                 accept_window=lambda w: wechat_pid(w) == owner)
             window = entry._open_from_search(self.desktop.windows(), selected)
             self.desktop.bind(window)
-            self.api.wait(self.api.ready, 20, '小店业务数据尚未准备好，请保持微信登录后继续。')
+            try:
+                self.api.wait(self.api.ready, 20, '小店业务数据尚未准备好，请保持微信登录后继续。')
+            except PageError as error:
+                raise OrderContextPending(str(error)) from error
         finally:
             if return_previous:
                 self.desktop.end_preparation(previous)

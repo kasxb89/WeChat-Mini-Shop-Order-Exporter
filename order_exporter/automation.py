@@ -4,14 +4,14 @@ import re
 import time
 
 from .models import Filters, OrderRecord, Progress
-from .native import PageError
+from .native import PageError, Paused
 from .vision import (Page, compact, labelled_copy, copied_identifier, back_arrow, order_cards,
                      ordered_time, order_expand, detail_shop, detail_products, logistics_entry,
                      tracking_copy, clean_product, detail_recipient, wechat_search_result, read_identifier, wechat_order_center)
 
 
 class Collector:
-    def __init__(self, desktop, progress, filters: Filters | None = None, completed_ids=None, completed_times=None, target=None, before_open=None):
+    def __init__(self, desktop, progress, filters: Filters | None = None, completed_ids=None, completed_times=None, target=None, before_open=None, accept_window=None):
         self.desktop = desktop
         self.progress = progress
         self.filters = filters or Filters()
@@ -21,6 +21,7 @@ class Collector:
         self.completed_times = completed_times or {}
         self.target = target
         self.before_open = before_open
+        self.accept_window = accept_window
         self.bound_window = None
         self.last_order_time = ""
         self.time_samples = 0
@@ -76,12 +77,16 @@ class Collector:
             self.desktop.wait(.25)
             windows = self.desktop.windows()
             matches = [w for w in windows if predicate(w)]
+            if self.accept_window:
+                matches = [w for w in matches if self.accept_window(w)]
             active = self.desktop.active_window(windows)
             if active in matches:
                 return active
             new = [w for w in matches if w.hwnd not in old_ids]
             if len(new) == 1:
                 return new[0]
+            if self.accept_window and len(matches) == 1:
+                return matches[0]
         raise PageError(message)
 
     def open_from_search(self, old_windows, selected=None):
@@ -109,16 +114,32 @@ class Collector:
             selected = main[0]
         if selected.path.lower().endswith(("\\weixin.exe", "\\wechat.exe")):
             self.report("自动准备（前台）", "正在自动搜索微信小店并打开订单中心，请暂时不要切换窗口。")
-            desktop.search_wechat(selected)
-            page = self.wait_page(lambda p: wechat_search_result(p) is not None, "所选微信的搜索结果尚未载入，请稍后继续。")
-            target = wechat_search_result(page)
-            desktop.click(page, target.x, target.y)
-            selected = self.wait_window(old_windows, lambda w: w.title == "微信" and w.path.lower().endswith("\\wechatappex.exe"),
-                                        "所选微信的搜索页未打开，请先在该微信打开「微信小店」。")
+            failure = None
+            for attempt in range(3):
+                if attempt:
+                    self.report("自动恢复搜索", "正在重试微信快捷键。" if attempt == 1 else "正在改用搜索控件或局部图像定位。")
+                try:
+                    if attempt == 2:
+                        desktop.search_wechat(selected, locate=True)
+                    else:
+                        desktop.search_wechat(selected)
+                    page = self.wait_page(lambda p: wechat_search_result(p) is not None,
+                        "所选微信的搜索结果尚未载入。", timeout=3 if attempt == 0 else 6, allow_missing=True)
+                    if page is None:
+                        continue
+                    target = wechat_search_result(page)
+                    desktop.click(page, target.x, target.y)
+                    selected = self.wait_window(old_windows, lambda w: w.title == "微信" and w.path.lower().endswith("\\wechatappex.exe"),
+                                                "微信小店搜索页尚未打开。")
+                    break
+                except PageError as error:
+                    failure = error
+            else:
+                raise PageError(f"自动搜索仍未成功：{failure or '微信未显示微信小店搜索结果'}。可在同一微信打开小店搜索页后继续。")
         desktop.bind(selected)
         desktop.search_center_pending = True
         page = self.wait_page(lambda p: wechat_order_center(p) is not None,
-                              "当前搜索页尚未显示微信小店「订单中心」，请稍后继续。")
+                              "当前搜索页尚未显示微信小店「订单中心」，请稍后继续。", timeout=15)
         center = wechat_order_center(page)
         if self.before_open:
             self.before_open(selected)
@@ -130,14 +151,14 @@ class Collector:
         return self.wait_page(lambda p: bool(p.texts) and not p.has("加载中", "正在加载"),
                               "页面尚未载入，请稍后继续。")
 
-    def wait_page(self, predicate, message, *, timeout=6, visual=False):
+    def wait_page(self, predicate, message, *, timeout=6, visual=False, allow_missing=False):
         # 目标页面出现即继续，不为已经读到的同一画面再等一轮。
         until = time.monotonic() + timeout
         next_visual = time.monotonic() + .3
         while True:
             page = self.desktop.read()
             if page.has("登录后查看", "请先登录", "登录微信"):
-                raise PageError("请先在微信完成登录，再点击「继续上次」。")
+                raise Paused("请先在微信完成登录，再点击「继续上次」。")
             if predicate(page):
                 return page
             if visual and page.source=="uia" and hasattr(self.desktop,"read_visual") and time.monotonic()>=next_visual:
@@ -146,6 +167,8 @@ class Collector:
                     return image_page
                 next_visual=time.monotonic()+1
             if time.monotonic() >= until:
+                if allow_missing:
+                    return None
                 raise PageError(message)
             self.desktop.wait(.08)
 

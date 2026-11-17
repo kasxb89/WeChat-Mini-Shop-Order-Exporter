@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-import hashlib
 import json
 from pathlib import Path
 import secrets
@@ -12,6 +11,7 @@ import time
 
 from .native import PageError, Paused
 from .order_protocol import command, response
+from .runtime_profiles import identify_runtime, runtime_library
 
 APP_ID = 'wxca8d4b8e8feedc2a'
 RUNTIME_SHA256 = '57717d08d0d80e52926a3d3dbbffe9ae46fbe40f19fc82befc4e14b06ff80ebe'
@@ -148,6 +148,8 @@ class OrderAPI:
         self.pending = {}
         self.connections = set()
         self.cleanup = None
+        self.runtime_config = RUNTIME_CONFIG
+        self.runtime = None
 
     def check(self):
         if self.check_stop:
@@ -168,10 +170,14 @@ class OrderAPI:
     def start(self, pid):
         import psutil
         process = psutil.Process(pid)
-        runtime = Path(process.exe()).parent
-        digest = hashlib.sha256((runtime / 'flue.dll').read_bytes()).hexdigest()
-        if digest != RUNTIME_SHA256:
-            raise PageError('当前微信小程序运行时尚未适配数据直读。请保留现有记录，更新本工具后继续。')
+        library = runtime_library(process)
+        if library is None:
+            raise PageError('微信小程序运行库尚未加载，请打开微信小店后继续。')
+        self.runtime = identify_runtime(library)
+        profile = self.runtime['profile']
+        if profile is None:
+            raise PageError(f"微信小程序运行时 {self.runtime['version'] or library.parent.name} 尚未匹配到数据通道配置；当前配置为 25710、25715、26073。")
+        self.runtime_config = profile['config']
         self.thread = threading.Thread(target=lambda: asyncio.run(self.serve(pid)), daemon=True)
         self.thread.start()
         self.wait(self.started, 15, '建立本地订单连接超时，请关闭其他小程序调试工具后继续。')
@@ -271,7 +277,7 @@ class OrderAPI:
                 finally:
                     timer.cancel()
                 source = (Path(__file__).parent / 'assets' / 'order-hook.js').read_text(encoding='utf-8')
-                source = source.replace('@@CONFIG@@', json.dumps(RUNTIME_CONFIG)).replace('@@LOCAL_URL@@', json.dumps(endpoint))
+                source = source.replace('@@CONFIG@@', json.dumps(self.runtime_config)).replace('@@LOCAL_URL@@', json.dumps(endpoint))
                 script = session.create_script(source)
                 def receive(message, data):
                     payload = message.get('payload', {})

@@ -91,10 +91,11 @@ class Page:
         return False
 
 
-def wechat_search_box(page: Page) -> Text | None:
+def wechat_search_box(page: Page, *, scale=1.0) -> Text | None:
     """主聊天窗口左上搜索框，不匹配会话区或下方搜索建议。"""
-    labels = [t for t in page.find("搜索", "微信小店")
-              if page.width*.04 < t.x < page.width*.42 and 25 < t.y < min(110, page.height*.18)]
+    # 放大镜会与输入框文字合成「Q搜索」；仅在左上搜索区域接受该前缀。
+    labels = [t for t in page.find("搜索", "Q搜索", "q搜索", "微信小店", "Q微信小店", "q微信小店", "Search")
+              if 16*scale < t.x < min(page.width*.42, 560*scale) and 25*scale < t.y < min(110*scale, page.height*.18)]
     if len(labels) == 1:
         return labels[0]
     if page.image is None:
@@ -103,14 +104,14 @@ def wechat_search_box(page: Page) -> Text | None:
     import cv2
     import numpy as np
     gray = np.asarray(page.image.convert("L"))
-    height, width = min(round(page.height*.18), 120), round(page.width*.45)
+    height, width = min(round(page.height*.18), round(120*scale)), min(round(page.width*.45), round(560*scale))
     edges = cv2.Canny(gray[:height, :width], 12, 35)
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     matches = []
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
-        if (page.width*.05 < x < page.width*.28 and 25 < y < height-18
-                and max(80, page.width*.10) < w < page.width*.4 and 19 < h < 60 and 3 < w/h < 12):
+        if (16*scale < x < min(page.width*.28, 320*scale) and 25*scale < y < height-18*scale
+                and 80*scale < w < min(page.width*.4, 480*scale) and 19*scale < h < 60*scale and 3 < w/h < 12):
             candidate = Text("搜索框", (x,y,x+w,y+h))
             if not any(abs(t.x-candidate.x)<6 and abs(t.y-candidate.y)<6 for t in matches):
                 matches.append(candidate)

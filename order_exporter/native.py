@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from collections import OrderedDict
 import hashlib
 import os
+import re
 from functools import lru_cache
 import time
 
@@ -80,6 +81,9 @@ class Desktop:
         self.u.GetWindowRect.argtypes = [W.HWND, C.POINTER(W.RECT)]
         self.u.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
         self.u.GetWindowTextW.argtypes = [W.HWND, W.LPWSTR, C.c_int]
+        self.u.GetClassNameW.argtypes = [W.HWND, W.LPWSTR, C.c_int]
+        self.u.GetDpiForWindow.argtypes = [W.HWND]
+        self.u.GetDpiForWindow.restype = W.UINT
         self.u.IsWindowVisible.argtypes = [W.HWND]
         self.u.IsWindow.argtypes = [W.HWND]
         self.u.GetWindow.argtypes = [W.HWND, W.UINT]
@@ -126,40 +130,65 @@ class Desktop:
             time.sleep(min(.08, max(0, until - time.monotonic())))
 
     def process_path(self, hwnd: int) -> str:
+        self.last_path_error = 0
         pid = W.DWORD()
         self.u.GetWindowThreadProcessId(hwnd, C.byref(pid))
         process = self.k.OpenProcess(0x1000, False, pid.value)
         if not process:
+            self.last_path_error = C.get_last_error()
             return ""
         try:
             path = C.create_unicode_buffer(32768)
             size = W.DWORD(len(path))
-            return path.value if self.k.QueryFullProcessImageNameW(process, 0, path, C.byref(size)) else ""
+            if self.k.QueryFullProcessImageNameW(process, 0, path, C.byref(size)):
+                return path.value
+            self.last_path_error = C.get_last_error()
+            return ""
         finally:
             self.k.CloseHandle(process)
 
     def windows(self) -> list[Window]:
         result = []
+        self.window_scan = []
         callback_type = C.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
 
         @callback_type
         def enum(hwnd, _):
-            if not self.u.IsWindowVisible(hwnd):
-                return True
             title = C.create_unicode_buffer(512)
             self.u.GetWindowTextW(hwnd, title, len(title))
-            if title.value in {"微信", "WeChat", "Weixin", "小店", "微信小店"}:
+            kind = C.create_unicode_buffer(256)
+            self.u.GetClassNameW(hwnd, kind, len(kind))
+            main_title = bool(re.match(r"^(微信|WeChat|Weixin)(?:$|[\s(（\[【·•\-—:：])", title.value, re.I))
+            main_class = kind.value in {"WeChatMainWndForPC", "mmui::MainWindow"}
+            mini_title = title.value in {"小店", "微信小店", "微信"}
+            if main_title or main_class or mini_title:
                 path = self.process_path(hwnd)
                 lower = path.lower().replace("/", "\\")
-                if ((lower.endswith(("\\weixin.exe", "\\wechat.exe")) and title.value in {"微信", "WeChat", "Weixin"}
+                visible = bool(self.u.IsWindowVisible(hwnd))
+                accepted = ((lower.endswith(("\\weixin.exe", "\\wechat.exe")) and (main_title or main_class)
                      and not self.u.GetWindowLongW(hwnd,-20) & (0x80 | 0x08000000))
-                        or (lower.endswith("\\wechatappex.exe") and "\\xwechat\\" in lower and title.value in {"小店", "微信小店", "微信"})):
-                    pid = W.DWORD()
-                    self.u.GetWindowThreadProcessId(hwnd, C.byref(pid))
+                        or (lower.endswith("\\wechatappex.exe") and visible and mini_title))
+                pid = W.DWORD()
+                self.u.GetWindowThreadProcessId(hwnd, C.byref(pid))
+                self.window_scan.append({"hwnd": int(hwnd), "pid": pid.value, "title": title.value,
+                    "class": kind.value, "path": path, "visible": visible, "accepted": bool(accepted),
+                    "path_error": getattr(self, "last_path_error", 0)})
+                if accepted:
                     result.append(Window(int(hwnd), title.value, path, pid.value))
             return True
         self.u.EnumWindows(enum, 0)
         return result
+
+    def detection_details(self):
+        import psutil
+        processes = [p.info for p in psutil.process_iter(["pid", "name", "exe"], ad_value="")
+                     if any(name in (p.info["name"] or "").lower() for name in ("wechat", "weixin"))]
+        from .runtime_profiles import PROFILES, file_version
+        versions = {path: file_version(path) for path in {p['exe'] for p in processes if p['exe']}}
+        for process in processes:
+            process['file_version'] = versions.get(process['exe'], '')
+        return {"processes": processes, "window_candidates": self.window_scan,
+                "runtime_profiles": [{'version': p['version'], 'validation': p['validation']} for p in PROFILES]}
 
     def active_window(self, windows=None):
         front = self.u.GetAncestor(self.u.GetForegroundWindow(), 2)
@@ -205,7 +234,7 @@ class Desktop:
         self.search_pending = False
         self.search_center_pending = False
         if not self.background:
-            if self.u.IsIconic(self.hwnd):
+            if self.u.IsIconic(self.hwnd) or not self.u.IsWindowVisible(self.hwnd):
                 self.u.ShowWindow(self.hwnd, 9)
             self.u.SetForegroundWindow(self.hwnd)
         self.wait(self.BIND_DELAY)
@@ -219,15 +248,14 @@ class Desktop:
             if self.u.IsIconic(self.hwnd):
                 raise Paused("后台采集可被其他窗口遮住；请保持微信小店打开，不要最小化。")
             return
-        for attempt in range(2):
-            front = self.u.GetForegroundWindow()
-            if front == self.hwnd or self.u.GetAncestor(front, 3) == self.u.GetAncestor(self.hwnd, 3):
-                return
-            if not attempt:
-                self.wait(.2)
-        title = C.create_unicode_buffer(256)
-        self.u.GetWindowTextW(front, title, len(title))
-        raise Paused(f"当前前台是「{title.value or '其他窗口'}」，采集已暂停；回到导出器点击「继续上次」。")
+        front = self.u.GetForegroundWindow()
+        if front == self.hwnd or self.u.GetAncestor(front, 3) == self.u.GetAncestor(self.hwnd, 3):
+            return
+        self.u.SetForegroundWindow(self.hwnd)
+        self.wait(.05)
+        front = self.u.GetForegroundWindow()
+        if front != self.hwnd and self.u.GetAncestor(front, 3) != self.u.GetAncestor(self.hwnd, 3):
+            raise Paused("无法激活所选微信窗口，请将它置前后继续。")
 
     def rect(self):
         rect = W.RECT()
@@ -486,16 +514,31 @@ class Desktop:
                 page.image.paste(image, (0, top))
         return page, button
 
-    def search_wechat(self, window: Window):
-        """复用常驻桥接定位搜索框，不为一次搜索另起 PowerShell。"""
+    def search_wechat(self, window: Window, *, locate=False):
+        """用微信原生快捷键聚焦全局搜索，不依赖主窗口截图、字号或缩放。"""
         if self.background:
             raise PageError("微信搜索需要先完成自动准备。")
         self.bind(window)
-        page = self.read()
-        target = wechat_search_box(page)
-        if target is None:
-            raise PageError("所选窗口未找到左上角搜索框，请先打开这个微信的主聊天窗口。")
-        self.click(page, target.x, target.y)
+        if locate:
+            rect = self.rect()
+            scale = (self.u.GetDpiForWindow(self.hwnd) or 96) / 96
+            snapshot = self.bridge.read(self.hwnd, self.pid) if self.bridge_enabled else None
+            target, page = None, None
+            if snapshot and tuple(snapshot['rect']) == rect:
+                texts = [Text(n['text'], (n['rect'][0]-rect[0], n['rect'][1]-rect[1],
+                    n['rect'][2]-rect[0], n['rect'][3]-rect[1]), role=n.get('role', 'text')) for n in snapshot['nodes']]
+                page = Page(self.hwnd, rect, texts, source='uia')
+                target = wechat_search_box(page, scale=scale)
+            if target is None:
+                image = self.capture(rect).crop((0, 0, min(rect[2]-rect[0], round(560*scale)),
+                                                min(rect[3]-rect[1], round(120*scale))))
+                page = Page(self.hwnd, rect, self.ocr(image), image)
+                target = wechat_search_box(page, scale=scale)
+            if target is None:
+                raise PageError("快捷键和局部定位均未找到搜索入口，请确认所选微信已登录。")
+            self.click(page, target.x, target.y)
+        else:
+            self.key(0x46, (0x11,))  # Ctrl+F: global search, not the message composer.
         self.key(0x41, (0x11,))
         self.paste_text("微信小店")
         self.search_pending = True

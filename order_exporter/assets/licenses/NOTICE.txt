@@ -17,3 +17,8 @@ WMPF protocol research references (not bundled as runtime code)
 https://github.com/evi0s/WMPFDebugger
 The diagnostic autodetector and its GPL license remain in verification only.
 The shipped runtime uses the independently implemented, version-bound connection and protobuf envelope.
+
+WMPFDebugger runtime layout data (25710, 25715)
+https://github.com/evi0s/WMPFDebugger/tree/9be0b2d0bd9875bd21a104a2279ad4304b46388b/frida/config/win32
+Copyright WMPFDebugger contributors. Configuration data distributed with GPL-2.0; see WMPFDebugger-GPL-2.0.txt.
+Only numeric version layout data is included; the automatic analysis script is not distributed.

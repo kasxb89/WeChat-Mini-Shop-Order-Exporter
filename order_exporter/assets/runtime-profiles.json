@@ -1,0 +1,78 @@
+[
+  {
+    "version": 25710,
+    "validation": "upstream-profile",
+    "source": "https://github.com/evi0s/WMPFDebugger/blob/9be0b2d0bd9875bd21a104a2279ad4304b46388b/frida/config/win32/addresses.25710.json",
+    "config": {
+      "Version": 25710,
+      "LoadStartHookOffset": "0x2D45E40",
+      "CDPFilterHookOffset": "0x38193E0",
+      "CastToJsonHookOffset": "0xA79CF0",
+      "MiniAppConfigStructOffsets": {
+        "LaunchConfigOffsets": [
+          64,
+          1568,
+          8
+        ],
+        "RemoteDebugConfigOffsets": [
+          1504,
+          16
+        ],
+        "SceneOffset": 456,
+        "WebSocketURLStringOffset": 616,
+        "RemoteDebugModeOffset": 724
+      }
+    }
+  },
+  {
+    "version": 25715,
+    "validation": "upstream-profile",
+    "source": "https://github.com/evi0s/WMPFDebugger/blob/9be0b2d0bd9875bd21a104a2279ad4304b46388b/frida/config/win32/addresses.25715.json",
+    "config": {
+      "Version": 25715,
+      "LoadStartHookOffset": "0x2D456B0",
+      "CDPFilterHookOffset": "0x381C1D0",
+      "CastToJsonHookOffset": "0x9EC7870",
+      "MiniAppConfigStructOffsets": {
+        "LaunchConfigOffsets": [
+          64,
+          1568,
+          8
+        ],
+        "RemoteDebugConfigOffsets": [
+          1504,
+          16
+        ],
+        "SceneOffset": 456,
+        "WebSocketURLStringOffset": 616,
+        "RemoteDebugModeOffset": 724
+      }
+    }
+  },
+  {
+    "version": 26073,
+    "validation": "live-order-api",
+    "sha256": "57717d08d0d80e52926a3d3dbbffe9ae46fbe40f19fc82befc4e14b06ff80ebe",
+    "source": "local runtime and live order API verification",
+    "config": {
+      "Version": 26073,
+      "LoadStartHookOffset": "0x2dd2b30",
+      "CDPFilterHookOffset": "0x39a2a40",
+      "CastToJsonHookOffset": "0xbb224f0",
+      "MiniAppConfigStructOffsets": {
+        "LaunchConfigOffsets": [
+          64,
+          1616,
+          8
+        ],
+        "RemoteDebugConfigOffsets": [
+          1544,
+          16
+        ],
+        "SceneOffset": 480,
+        "WebSocketURLStringOffset": 648,
+        "RemoteDebugModeOffset": 748
+      }
+    }
+  }
+]

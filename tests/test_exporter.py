@@ -3,7 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from collections import OrderedDict
 from contextlib import closing
 from types import SimpleNamespace
@@ -407,13 +407,13 @@ class NavigationTests(unittest.TestCase):
         first=Window(1,"微信",r"C:\Weixin.exe",10)
         second=Window(2,"微信",r"C:\Weixin.exe",20)
         attempted=[]
-        def search(w):
+        def search(w, **_):
             attempted.append(w.hwnd)
             raise PageError("搜索框未识别")
         desktop.search_wechat=search
         with self.assertRaisesRegex(PageError,"搜索框"):
             Collector(desktop,lambda _:None).open_from_search([first,second],second)
-        self.assertEqual(attempted,[2])
+        self.assertEqual(attempted,[2,2,2])
 
     def test_delayed_open_cannot_bind_an_existing_inactive_mini_from_another_account(self):
         desktop=FakeDesktop()
@@ -453,15 +453,18 @@ class ForegroundTests(unittest.TestCase):
         frames = iter(frames)
         desktop.u = SimpleNamespace(IsWindow=lambda _:True, GetForegroundWindow=lambda:next(frames),
                                     GetAncestor=lambda hwnd,_:hwnd,
+                                    SetForegroundWindow=Mock(),
                                     GetWindowTextW=lambda hwnd,buffer,_:setattr(buffer,"value","测试窗口"))
         desktop.wait = lambda _:None
         return desktop
 
     def test_temporary_focus_gap_during_navigation_does_not_pause(self):
-        self.desktop([0,1]).guard()
+        desktop = self.desktop([0,1])
+        desktop.guard()
+        desktop.u.SetForegroundWindow.assert_called_once_with(1)
 
-    def test_staying_in_another_app_still_pauses_before_input(self):
-        with self.assertRaisesRegex(Paused,"测试窗口"):
+    def test_failed_activation_still_prevents_input_in_another_app(self):
+        with self.assertRaisesRegex(Paused,"无法激活所选微信"):
             self.desktop([2,2]).guard()
 
 
@@ -691,6 +694,18 @@ class ParserTests(unittest.TestCase):
         target=wechat_search_box(p)
         self.assertIsNotNone(target)
         self.assertTrue(74<target.x<252 and 42<target.y<70)
+
+    def test_search_accepts_magnifier_joined_to_the_actual_native_ocr_label(self):
+        for value in ("Q搜索", "q 搜索", "Q微信小店"):
+            with self.subTest(value=value):
+                target = Text(value, (86, 48, 136, 66), .98)
+                p = Page(1, (75, 56, 971, 704), [target])
+                self.assertIs(wechat_search_box(p), target)
+
+    def test_magnifier_prefix_does_not_match_chat_or_lower_search_suggestions(self):
+        p = Page(1, (0, 0, 896, 648), [text("Q搜索", 410, 58, 60),
+            text("Q搜索", 95, 420, 60), text("Q微信小店", 100, 125, 80)])
+        self.assertIsNone(wechat_search_box(p))
 
     def test_recipient_does_not_use_the_logistics_signed_location_or_courier(self):
         p=page([text("已签收 您的快件已投递，收件人:示例小区门卫",40,140,340),

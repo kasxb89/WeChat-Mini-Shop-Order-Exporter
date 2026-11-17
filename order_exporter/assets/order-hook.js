@@ -1,6 +1,7 @@
 // Runtime-only connection for one selected miniapp. No executable files are changed.
 const config = @@CONFIG@@;
 const endpoint = @@LOCAL_URL@@;
+if (Process.arch !== 'x64') throw new Error('当前小程序运行时不是已适配的 Windows x64 架构');
 const appid = 'wxca8d4b8e8feedc2a';
 const module = Process.getModuleByName('flue.dll');
 const layout = config.MiniAppConfigStructOffsets;

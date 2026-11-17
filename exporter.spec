@@ -15,6 +15,7 @@ datas = collect_data_files("rapidocr_onnxruntime")
 datas += [(str(root / "order_exporter" / "assets" / "copy-icon.png"), "order_exporter/assets")]
 datas += [(str(root / "order_exporter" / "assets" / "calendar-down.png"), "order_exporter/assets")]
 datas += [(str(root / "order_exporter" / "assets" / "order-hook.js"), "order_exporter/assets")]
+datas += [(str(root / "order_exporter" / "assets" / "runtime-profiles.json"), "order_exporter/assets")]
 datas += [(str(path), 'order_exporter/assets/licenses') for path in (root / 'order_exporter/assets/licenses').glob('*.txt')]
 binaries = collect_dynamic_libs("onnxruntime")
 a = Analysis([str(root / "main.py")], pathex=[str(root), str(bridge_deps)], binaries=binaries, datas=datas,

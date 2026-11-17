@@ -1,3 +1,3 @@
 """微信小店个人订单数据导出器。"""
 
-__version__ = "0.9.1-preview"
+__version__ = "0.9.3-preview"

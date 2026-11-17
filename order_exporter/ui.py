@@ -149,9 +149,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.target.setMinimumContentsLength(20)
         self.target.setToolTip("两个微信可以同时打开；选择目标后点「查看窗口」确认。切换到另一个账号时请开始新采集。")
         target_row.addWidget(self.target, 1)
-        self.detect = button("重新检测", self.refresh_targets)
+        self.detect = button("重新检测", lambda: self.refresh_targets(report=True))
+        self.detect_details = button("检测详情", self.show_detection_details)
         self.show_target_button = button("查看窗口", self.show_target)
         target_row.addWidget(self.detect)
+        target_row.addWidget(self.detect_details)
         target_row.addWidget(self.show_target_button)
         layout.addLayout(target_row)
 
@@ -395,20 +397,65 @@ class MainWindow(QtWidgets.QMainWindow):
             self.export.setEnabled(False)
         store.close()
 
-    def refresh_targets(self):
+    def refresh_targets(self, *, report=False):
         previous = self.target.currentData()
+        desktop, error = None, ""
         try:
-            windows = Desktop(threading.Event(), None).windows()
-        except OSError:
+            desktop = Desktop(threading.Event(), None)
+            windows = desktop.windows()
+        except OSError as failure:
+            error = str(failure)
             windows = []
         windows.sort(key=lambda w:(w.title not in {"小店","微信小店"}, w.path.lower().endswith("\\wechatappex.exe"), w.hwnd))
         self.target.clear()
-        self.target.addItem("自动选择唯一的小店或微信窗口", None)
+        self.target.addItem("自动选择唯一的小店或微信窗口" if windows else "未检测到微信窗口，请查看检测详情", None)
         for window in windows:
             self.target.addItem(window.label(), window)
             self.target.setItemData(self.target.count()-1, window.path, QtCore.Qt.ToolTipRole)
             if previous == window:
                 self.target.setCurrentIndex(self.target.count()-1)
+        if len(windows) == 1:
+            self.target.setCurrentIndex(1)
+        if report or not windows:
+            self.detection_report = {"version": __version__, "time": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "error": error, "windows": [asdict(w) for w in windows],
+                **(desktop.detection_details() if desktop else {})}
+            if windows:
+                self.detection_summary = f"已检测到 {len(windows)} 个微信/小店窗口。" + ("已自动选择，可开始采集。" if len(windows) == 1 else "请在采集窗口中选择对应微信账号。")
+            elif error:
+                self.detection_summary = "窗口检测失败，请查看检测详情中的错误。"
+            elif self.detection_report.get("processes"):
+                self.detection_summary = "检测到微信进程，但未识别到主窗口。请打开微信主聊天窗口；已打开时，请把「检测详情」复制给技术支持。"
+            else:
+                self.detection_summary = "未发现运行中的微信进程。请打开并登录电脑版微信，再点击「重新检测」。"
+            try:
+                data_dir().mkdir(parents=True, exist_ok=True)
+                (data_dir() / "last-wechat-detection.json").write_text(json.dumps(self.detection_report, ensure_ascii=False, indent=2), encoding="utf-8")
+            except OSError as failure:
+                self.detection_report["save_error"] = str(failure)
+            if report:
+                self.message.setText(self.detection_summary)
+
+    def show_detection_details(self):
+        if not hasattr(self, "detection_report"):
+            self.refresh_targets(report=True)
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("微信检测详情")
+        dialog.resize(720, 480)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        summary = QtWidgets.QLabel(self.detection_summary)
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+        text = json.dumps(self.detection_report, ensure_ascii=False, indent=2)
+        details = QtWidgets.QPlainTextEdit(text)
+        details.setReadOnly(True)
+        layout.addWidget(details)
+        actions = QtWidgets.QHBoxLayout()
+        actions.addWidget(button("复制检测信息", lambda: QtWidgets.QApplication.clipboard().setText(text)))
+        actions.addStretch()
+        actions.addWidget(button("关闭", dialog.accept))
+        layout.addLayout(actions)
+        dialog.exec()
 
     def show_target(self):
         target = self.target.currentData()
@@ -555,7 +602,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def set_running(self, running):
         self.running = running
         for control in (self.start, self.check, self.folder, self.browse, self.shop, self.all_time, self.ordering,
-                        self.history, self.target, self.detect, self.show_target_button, self.background):
+                        self.history, self.target, self.detect, self.detect_details, self.show_target_button, self.background):
             control.setEnabled(not running)
         self.resume.setEnabled(not running and bool(self.job) and self.resume.property("canResume") is not False)
         self.pause.setEnabled(running)
